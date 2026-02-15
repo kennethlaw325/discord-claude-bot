@@ -90,7 +90,48 @@ On Windows, `process.env` is a **case-insensitive Proxy** object. `PATH` and `Pa
 
 **Cause:** Retrying the same Discord message after a failed bot response tried to create a second thread on the same message. Discord only allows one thread per message.
 
-**Fix:** Wrapped `message.startThread()` in try-catch, silently skip if thread already exists.
+**Fix:** Changed from `message.startThread()` to `channel.threads.create()`, which creates a standalone thread not tied to a specific message. This completely avoids the duplication error.
+
+---
+
+### Debugging: CJK Characters Causing Crash on Windows
+
+**Symptom:** English messages worked fine. Chinese messages caused `exit code 3221225794` (STATUS_DLL_INIT_FAILED) when `shell: true` was used.
+
+#### Attempt 5: Set UTF-8 codepage before spawn
+
+```typescript
+// Hypothesis: cmd.exe default codepage can't handle Chinese
+const cmd = `chcp 65001 >nul & claude ${args.join(" ")}`;
+spawn("cmd.exe", ["/c", cmd], { cwd });
+```
+**Result:** Same crash. `chcp` alone doesn't fix cmd.exe stdin pipe encoding.
+
+#### Attempt 6: Bypass cmd.exe entirely
+
+```typescript
+// Hypothesis: cmd.exe is fundamentally broken for CJK stdin
+// Solution: Run node directly with claude's cli.js entry point
+const CLAUDE_CLI = join(process.env.APPDATA, "npm/node_modules/@anthropic-ai/claude-code/cli.js");
+spawn(process.execPath, [CLAUDE_CLI, ...args], { cwd });
+```
+**Result:** SUCCESS. Chinese messages now work perfectly.
+
+#### Root Cause
+
+Windows `cmd.exe` corrupts CJK (Chinese/Japanese/Korean) characters when piping through stdin, even with `chcp 65001`. By spawning Node.js directly with claude's JavaScript entry point (`cli.js`), we bypass cmd.exe entirely. Node.js handles UTF-8 natively, so all character encodings work correctly.
+
+**Lesson:** On Windows, avoid `shell: true` for child processes that handle non-ASCII text via stdin. Instead, find the actual script entry point and run it with Node.js directly.
+
+---
+
+### Debugging: Discord Role Mention Not Stripped
+
+**Symptom:** Content sent to Claude included raw Discord mention markup like `<@&1472293487696150719>`.
+
+**Cause:** Original regex `<@!?userId>` only stripped user mentions. Discord role mentions use format `<@&roleId>` which wasn't matched.
+
+**Fix:** Changed to `/<@[!&]?\d+>/g` which strips all mention types (user, nickname, role).
 
 ---
 
