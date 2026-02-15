@@ -135,6 +135,22 @@ Windows `cmd.exe` corrupts CJK (Chinese/Japanese/Korean) characters when piping 
 
 ---
 
+### Debugging: Ghost Bot Instances (Multiple Responses Per Message)
+
+**Symptom:** Every Chinese message produced 3 "Error: Process exited with code 3221225794" lines followed by one correct response. English messages also showed duplicate responses.
+
+**Investigation:** Debug log only showed successful responses (exit code 0). The errors weren't being logged by the current bot instance, suggesting they came from elsewhere.
+
+**Root Cause:** Each time the bot was restarted during debugging (via `npm run dev` in a new terminal or without properly killing the old process), the **previous Node.js process kept running in the background**. After multiple restart cycles, there were **4 concurrent bot instances** (8 node.exe processes - 4 tsx parent + 4 node child) all connected to Discord with the same bot token. Each message was received and processed by ALL instances simultaneously:
+- 3 old instances (with broken `shell: true` code) → 3 error responses
+- 1 new instance (with fixed direct node spawn) → 1 correct response
+
+**Fix:** Killed all stale processes via `taskkill`, then restarted with a single instance. Bot now responds once per message.
+
+**Lesson:** On Windows, always verify old processes are terminated before restarting. Use `tasklist` / `wmic` to check for orphaned node.exe processes, especially during rapid development iteration.
+
+---
+
 ### Architecture
 
 ```
