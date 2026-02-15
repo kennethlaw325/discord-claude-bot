@@ -39,14 +39,14 @@ export function runClaude(options: RunClaudeOptions): Promise<ClaudeResponse> {
   if (sessionId) {
     args.push("--resume", sessionId);
   }
-  args.push(message);
+  // Message is piped via stdin to avoid Windows shell escaping issues
+  // with special chars like <, >, & from Discord mentions
 
   return new Promise((resolve) => {
-    const proc = spawn("claude", args, {
-      cwd,
-      env: { ...process.env, CLAUDECODE: "" },
-      shell: true,
-    });
+    const proc = spawn("claude", args, { cwd, shell: true });
+
+    proc.stdin.write(message);
+    proc.stdin.end();
 
     let stdout = "";
     let stderr = "";
@@ -64,8 +64,16 @@ export function runClaude(options: RunClaudeOptions): Promise<ClaudeResponse> {
       resolve({ text: "", error: "Claude process timed out (5 min)" });
     }, timeoutMs);
 
+    proc.on("error", (err) => {
+      clearTimeout(timer);
+      console.error(`[CLI] spawn error:`, err);
+      resolve({ text: "", error: `Spawn error: ${err.message}` });
+    });
+
     proc.on("close", (code) => {
       clearTimeout(timer);
+      console.log(`[CLI] exit code=${code} stdout=${stdout.length}bytes stderr=${stderr.length}bytes`);
+      if (stderr) console.log(`[CLI] stderr: ${stderr.slice(0, 500)}`);
       if (code !== 0 && !stdout) {
         resolve({ text: "", error: stderr || `Process exited with code ${code}` });
         return;

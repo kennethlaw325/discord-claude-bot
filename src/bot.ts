@@ -27,29 +27,51 @@ export function createBot(config: BotConfig) {
   const sessions = new SessionManager();
 
   client.on("messageCreate", async (message: Message) => {
-    if (message.author.bot) return;
-    if (message.author.id !== config.allowedUserId) return;
+    try {
+      if (message.author.bot) return;
 
-    // Case 1: Message in a thread the bot is participating in
-    if (message.channel.isThread()) {
-      await handleThreadMessage(message, message.channel, config, sessions);
-      return;
-    }
+      console.log(`[MSG] from=${message.author.id} content="${message.content.slice(0, 50)}" channel=${message.channel.type}`);
 
-    // Case 2: Message mentions the bot in a regular channel
-    if (client.user && message.mentions.has(client.user)) {
-      const content = message.content
-        .replace(new RegExp(`<@!?${client.user.id}>`, "g"), "")
-        .trim();
-      if (!content) return;
+      if (message.author.id !== config.allowedUserId) {
+        console.log(`[SKIP] user not in allowlist`);
+        return;
+      }
 
-      const thread = await message.startThread({ name: content.slice(0, 100) });
-      await handleThreadMessage(
-        { content } as Message,
-        thread,
-        config,
-        sessions,
-      );
+      // Case 1: Message in a thread the bot is participating in
+      if (message.channel.isThread()) {
+        console.log(`[THREAD] handling thread message`);
+        await handleThreadMessage(message, message.channel, config, sessions);
+        return;
+      }
+
+      // Case 2: Message mentions the bot in a regular channel
+      const mentioned = client.user && message.mentions.has(client.user);
+      console.log(`[MENTION] bot mentioned: ${mentioned}`);
+
+      if (client.user && mentioned) {
+        const content = message.content
+          .replace(new RegExp(`<@!?${client.user.id}>`, "g"), "")
+          .trim();
+        if (!content) return;
+
+        console.log(`[NEW THREAD] creating thread for: "${content.slice(0, 50)}"`);
+        let thread: ThreadChannel;
+        try {
+          thread = await message.startThread({ name: content.slice(0, 100) });
+        } catch {
+          // Thread may already exist for this message
+          console.log(`[SKIP] could not create thread, may already exist`);
+          return;
+        }
+        await handleThreadMessage(
+          { content } as Message,
+          thread,
+          config,
+          sessions,
+        );
+      }
+    } catch (err) {
+      console.error(`[ERROR]`, err);
     }
   });
 
