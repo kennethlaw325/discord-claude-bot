@@ -1,4 +1,12 @@
 import { spawn } from "node:child_process";
+import { join } from "node:path";
+
+// Resolve claude CLI entry point directly to bypass cmd.exe
+// This avoids Windows codepage issues with CJK characters
+const CLAUDE_CLI = join(
+  process.env.APPDATA || "",
+  "npm/node_modules/@anthropic-ai/claude-code/cli.js",
+);
 
 export interface ClaudeResponse {
   sessionId?: string;
@@ -43,9 +51,11 @@ export function runClaude(options: RunClaudeOptions): Promise<ClaudeResponse> {
   // with special chars like <, >, & from Discord mentions
 
   return new Promise((resolve) => {
-    const proc = spawn("claude", args, { cwd, shell: true });
+    // Spawn node directly with claude's cli.js, bypassing cmd.exe entirely
+    // This fixes UTF-8/CJK encoding issues on Windows
+    const proc = spawn(process.execPath, [CLAUDE_CLI, ...args], { cwd });
 
-    proc.stdin.write(message);
+    proc.stdin.write(message, "utf8");
     proc.stdin.end();
 
     let stdout = "";

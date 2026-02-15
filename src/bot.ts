@@ -49,18 +49,26 @@ export function createBot(config: BotConfig) {
       console.log(`[MENTION] bot mentioned: ${mentioned}`);
 
       if (client.user && mentioned) {
+        // Strip all mention types: user <@id>, nickname <@!id>, role <@&id>
         const content = message.content
-          .replace(new RegExp(`<@!?${client.user.id}>`, "g"), "")
+          .replace(/<@[!&]?\d+>/g, "")
           .trim();
         if (!content) return;
 
         console.log(`[NEW THREAD] creating thread for: "${content.slice(0, 50)}"`);
         let thread: ThreadChannel;
         try {
-          thread = await message.startThread({ name: content.slice(0, 100) });
-        } catch {
-          // Thread may already exist for this message
-          console.log(`[SKIP] could not create thread, may already exist`);
+          // Use channel.threads.create() instead of message.startThread()
+          // to avoid "thread already exists" error on retried messages
+          if (!message.channel.isThread() && "threads" in message.channel) {
+            thread = await message.channel.threads.create({
+              name: content.slice(0, 100),
+            }) as ThreadChannel;
+          } else {
+            return;
+          }
+        } catch (threadErr) {
+          console.error(`[THREAD ERROR]`, threadErr);
           return;
         }
         await handleThreadMessage(
